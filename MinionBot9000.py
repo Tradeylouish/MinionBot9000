@@ -8,8 +8,21 @@ import cv2
 import numpy as np
 import imutils
 
+import serial
+import serial.tools.list_ports
+
 import RPi.GPIO as GPIO
 GPIO.setmode(GPIO.BCM)
+
+# Serial setup - hacky fix for finding Arduino
+ports = list(serial.tools.list_ports.comports())
+for p in ports:
+    # "USB" for CH340 serial driver, "ACM" for Atmel driver
+    if "USB" in p.device or "ACM" in p.device:
+        ser = serial.Serial(p.device,9600)
+        print("Established serial connection with " + p.device)
+
+ser.flushInput()
 
 # Button input
 TORTURE_VOLTAGE = 26
@@ -47,6 +60,15 @@ try:
         # Button press check
         if GPIO.input(TORTURE_VOLTAGE) == 1:
             soundPlayer.playSound('MinionsScreaming')
+        
+        # Read analog voltage over serial
+        if (ser.inWaiting()>0):
+            # Read line over serial, strip whitespace and decode
+            msg = ser.readline()
+            msg = msg.strip()
+            msg = msg.decode('utf-8')
+            voltage = float(msg)
+            print(msg)
             
         ret, frame = cam.read()
         frame = imutils.resize(frame, WIDTH)
