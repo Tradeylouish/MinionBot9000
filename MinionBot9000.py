@@ -7,9 +7,12 @@ import os
 import cv2
 import numpy as np
 import imutils
+from collections import deque
 
 import serial
 import serial.tools.list_ports
+
+import pygame
 
 import RPi.GPIO as GPIO
 GPIO.setmode(GPIO.BCM)
@@ -24,52 +27,41 @@ for p in ports:
 
 ser.flushInput()
 
-# Button input
-TORTURE_VOLTAGE = 26
-GPIO.setup(TORTURE_VOLTAGE, GPIO.IN, pull_up_down=GPIO.PUD_DOWN) # Internal pullup
-
-class SoundPlayer:
-    def __init__(self):
-        # Initial video setup
-        self.omxc = None
-        
-    def playSound(self, soundFile):
-        # If already playing, check if it has finished and needs to restart the loop
-        if not self.playing():
-            filePath = "/home/pi/MinionBot9000/Sounds/" + soundFile + ".mp3"
-            self.omxc = Popen(['omxplayer',filePath])
-            
-    def playing(self):
-        if (self.omxc != None):
-            if (self.omxc.poll() == None):
-                return True
-        return False
-        
-    def stopSound(self):
-        os.system('killall omxplayer.bin')
-    
-soundPlayer = SoundPlayer()
-
 # Connect to camera
 WIDTH = 200
 cam=cv2.VideoCapture(0)
-banana_cascade = cv2.CascadeClassifier('BananaCascade.xml')
+#banana_cascade = cv2.CascadeClassifier('BananaCascade.xml')
+banana_cascade = cv2.CascadeClassifier('banana_classifier.xml')
+
+MIN_BANANA_FRAMES = 5
+bananaFrameCount = 0
+
+# Pygame audio setup
+pygame.init()
+pygame.mixer.init()
 
 try:
     while 1:
-        # Button press check
-        if GPIO.input(TORTURE_VOLTAGE) == 1:
-            soundPlayer.playSound('MinionsScreaming')
-        
         # Read analog voltage over serial
         if (ser.inWaiting()>0):
             # Read line over serial, strip whitespace and decode
             msg = ser.readline()
             msg = msg.strip()
             msg = msg.decode('utf-8')
-            voltage = float(msg)
-            print(msg)
-            
+            try:
+                voltage = float(msg)
+                if voltage > 0:
+                    print(voltage)
+                    volume = voltage/5.0
+                    if not pygame.mixer.music.get_busy():
+                        pygame.mixer.music.load("/home/pi/MinionBot9000/Sounds/MinionsScreaming.mp3")
+                        pygame.mixer.music.play()
+                    pygame.mixer.music.set_volume(volume)
+                    
+            except ValueError:
+                print('Not a float')
+                
+                
         ret, frame = cam.read()
         frame = imutils.resize(frame, WIDTH)
             
@@ -77,12 +69,22 @@ try:
         #gray = cv2.GaussianBlur(gray, (5, 5), 0)
         gray = cv2.medianBlur(gray,5)
         
-        bananas = banana_cascade.detectMultiScale(gray,scaleFactor=1.1,minNeighbors=340, minSize=(55, 55))
+        #bananas = banana_cascade.detectMultiScale(gray,scaleFactor=1.1,minNeighbors=340, minSize=(55, 55))
+        bananas = banana_cascade.detectMultiScale(gray,scaleFactor=1.05,minNeighbors=4, minSize=(40, 40))
     
         for (x,y,w,h) in bananas:
             print((x,y))
             cv2.rectangle(frame,(x,y),(x+w,y+h),(255,255,0), 2)
-            soundPlayer.playSound('Banana')
+            #soundPlayer.playSound('Banana')
+        
+        if list(bananas):
+            bananaFrameCount += 1
+            if bananaFrameCount >= MIN_BANANA_FRAMES and not pygame.mixer.music.get_busy():
+                pygame.mixer.music.load("/home/pi/MinionBot9000/Sounds/Banana.mp3")
+                pygame.mixer.music.play()
+                pygame.mixer.music.set_volume(0.6)
+        else:
+            bananaFrameCount = 0
         
         cv2.imshow('frame',frame)
         
